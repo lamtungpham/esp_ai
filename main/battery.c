@@ -44,7 +44,7 @@ int battery_pct_from_mv(int mv)
     return 0;
 }
 
-bool battery_charging(void) { return s_host || s_volt_chg; }
+bool battery_charging(void) { return board_battery_charging() || s_host || s_volt_chg; }
 
 bool battery_poll(bool busy)
 {

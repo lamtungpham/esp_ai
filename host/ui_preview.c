@@ -141,17 +141,17 @@ int main(int argc, char **argv)
     }
     STEP("back to chat", app_ui_page(PAGE_CHAT));
     dump();
-    // Keypad rows start at CONVO_Y + 2*UI_ROW_H + 4, 34 px apart.
-    const int t9_keys_y = CONVO_Y_PX + 2 * UI_ROW_H + 4, t9_title_y = CONVO_Y_PX + 4;
+    // Keypad rows start at CONVO_Y + 2*UI_ROW_H + 2, 28 px apart (296x240).
+    const int t9_keys_y = CONVO_Y_PX + 2 * UI_ROW_H + 2, t9_title_y = CONVO_Y_PX + 4;
     STEP("t9 open", app_ui_t9_open());
-    STEP("t9: 4 4 (h -> i)", app_ui_t9_tap(5, t9_keys_y + 34 + 5); app_ui_t9_tap(5, t9_keys_y + 34 + 5));
-    STEP("t9: 0 0 (space -> zero)", app_ui_t9_tap(85, t9_keys_y + 3 * 34 + 5);
-         app_ui_t9_tap(85, t9_keys_y + 3 * 34 + 5));
+    STEP("t9: 4 4 (h -> i)", app_ui_t9_tap(5, t9_keys_y + 28 + 5); app_ui_t9_tap(5, t9_keys_y + 28 + 5));
+    STEP("t9: 0 0 (space -> zero)", app_ui_t9_tap(105, t9_keys_y + 3 * 28 + 5);
+         app_ui_t9_tap(105, t9_keys_y + 3 * 28 + 5));
     dump();
-    STEP("t9: [#+] symbol layer", app_ui_t9_tap(19 * UI_FONT_W + 4, t9_title_y));
-    STEP("t9: @ (key 7)", app_ui_t9_tap(5, t9_keys_y + 2 * 34 + 5));
+    STEP("t9: [#+] symbol layer", app_ui_t9_tap(26 * UI_FONT_W + 4, t9_title_y));
+    STEP("t9: @ (key 7)", app_ui_t9_tap(5, t9_keys_y + 2 * 28 + 5));
     dump();
-    STEP("t9 cancel", app_ui_t9_tap(230, t9_title_y));
+    STEP("t9 cancel", app_ui_t9_tap(33 * UI_FONT_W + 4, t9_title_y));
     STEP("ask pressed", app_ui_button(BTN_PRESSED));
     dump();
     STEP("turn 1: listening", app_ui_busy(true); app_ui_clear_turn(); app_ui_status("Listening...", UI_BUSY));

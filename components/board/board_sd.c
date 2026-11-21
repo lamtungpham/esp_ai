@@ -8,78 +8,63 @@
 // and stay under the same licence with corresponding source offered.
 // See LICENSE, LICENSE.exception, NOTICE.md and THIRD_PARTY.md.
 
-// microSD over SDMMC 4-bit (pins from Freenove; untested by Gume). FAT at /sd.
+// Internal 16MB SPI Flash Wear-Levelling FATFS mounted at /sd (TP-01 has no
+// physical microSD slot). Keeps /sd/... paths and tools/sd_put.py working.
 #include "board.h"
-#include "board_lcd_stream.h"
-#include "driver/sdmmc_host.h"
 #include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
+#include "wear_levelling.h"
 #include "esp_log.h"
 
-static const char *TAG = "sd";
-static sdmmc_card_t *s_card;
-
-static void slot_config(sdmmc_slot_config_t *slot)
-{
-    sdmmc_slot_config_t s = SDMMC_SLOT_CONFIG_DEFAULT();
-    s.width = 4;
-    s.clk = BOARD_SD_CLK;
-    s.cmd = BOARD_SD_CMD;
-    s.d0 = BOARD_SD_D0;
-    s.d1 = BOARD_SD_D1;
-    s.d2 = BOARD_SD_D2;
-    s.d3 = BOARD_SD_D3;
-    s.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
-    *slot = s;
-}
+static const char *TAG = "sd_flash";
+static wl_handle_t s_wl = WL_INVALID_HANDLE;
+static bool s_mounted;
 
 esp_err_t board_sd_mount(bool format_if_fail)
 {
-    if (s_card) return ESP_OK;
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;  // 40 MHz; falls back if card can't
-    sdmmc_slot_config_t slot;
-    slot_config(&slot);
-    esp_vfs_fat_sdmmc_mount_config_t mc = {
-        .format_if_mount_failed = format_if_fail,
+    if (s_mounted) return ESP_OK;
+    (void)format_if_fail;
+    const esp_vfs_fat_mount_config_t mc = {
+        .format_if_mount_failed = true,   // auto-format "storage" on first TP-01 boot
         .max_files = 6,
-        .allocation_unit_size = 64 * 1024,
+        .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
     };
-    esp_err_t e = esp_vfs_fat_sdmmc_mount(BOARD_SD_MOUNT, &host, &slot, &mc, &s_card);
+    esp_err_t e = esp_vfs_fat_spiflash_mount_rw_wl(BOARD_SD_MOUNT, "storage", &mc, &s_wl);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "SD mount failed: %s (card inserted? FAT32?)", esp_err_to_name(e));
-        s_card = NULL;
+        ESP_LOGE(TAG, "Flash FATFS mount failed: %s", esp_err_to_name(e));
+        s_wl = WL_INVALID_HANDLE;
+        s_mounted = false;
         return e;
     }
+    s_mounted = true;
     board_sd_info();
     return ESP_OK;
 }
 
 void board_sd_info(void)
 {
-    if (!s_card) return;
-    sdmmc_card_print_info(stdout, s_card);
+    if (!s_mounted) return;
     uint64_t total = 0, free_b = 0;
-    esp_vfs_fat_info(BOARD_SD_MOUNT, &total, &free_b);
-    ESP_LOGI(TAG, "FAT total %llu MB free %llu MB, bus %d kHz, width %d",
-             total >> 20, free_b >> 20, s_card->real_freq_khz, s_card->log_bus_width ? 4 : 1);
+    if (esp_vfs_fat_info(BOARD_SD_MOUNT, &total, &free_b) == ESP_OK) {
+        ESP_LOGI(TAG, "Flash FATFS /sd: total %llu KB, free %llu KB",
+                 total >> 10, free_b >> 10);
+    }
 }
 
 esp_err_t board_sd_format(void)
 {
-    if (!s_card) return ESP_ERR_INVALID_STATE;
-    esp_vfs_fat_mount_config_t mc = {.max_files = 6, .allocation_unit_size = 64 * 1024};
-    ESP_LOGW(TAG, "formatting SD card (FAT, 64 KB clusters)...");
-    esp_err_t e = esp_vfs_fat_sdcard_format_cfg(BOARD_SD_MOUNT, s_card, &mc);
+    if (!s_mounted) return ESP_ERR_INVALID_STATE;
+    ESP_LOGW(TAG, "formatting internal flash FATFS /sd...");
+    esp_err_t e = esp_vfs_fat_spiflash_format_rw_wl(BOARD_SD_MOUNT, "storage");
     ESP_LOGI(TAG, "format: %s", esp_err_to_name(e));
     return e;
 }
 
 void board_sd_unmount(void)
 {
-    if (!s_card) return;
-    esp_vfs_fat_sdcard_unmount(BOARD_SD_MOUNT, s_card);
-    s_card = NULL;
+    if (!s_mounted) return;
+    esp_vfs_fat_spiflash_unmount_rw_wl(BOARD_SD_MOUNT, s_wl);
+    s_wl = WL_INVALID_HANDLE;
+    s_mounted = false;
 }
 
-bool board_sd_mounted(void) { return s_card != NULL; }
+bool board_sd_mounted(void) { return s_mounted; }

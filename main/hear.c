@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 static const char *TAG = "hear";
 
@@ -107,10 +108,13 @@ hear_result_t hear_listen(const hear_params_t *p, char *text, size_t cap, hear_s
     cap_t *c = story_arena_calloc(&g_bulk, sizeof(cap_t), 4, "hear.cap");
     int16_t *ring = story_arena_alloc(&g_bulk, (size_t)RING_SLOTS * STT_CHUNK_SAMPLES * 2, 16, "hear.ring");
     int16_t *chunk = story_arena_alloc(&g_bulk, STT_CHUNK_SAMPLES * 2, 16, "hear.chunk");
-    if (!c || !ring || !chunk || !open_stt()) {
+    struct stat sb;
+    bool has_stt = (stat(STT_MODEL_PATH, &sb) == 0);
+    if (!c || !ring || !chunk || (has_stt && !open_stt())) {
         phase_end(&ph);
         return HEAR_ERROR;
     }
+    if (!has_stt) ESP_LOGW(TAG, "STT model not on /sd (%s); running VAD mic-only mode", STT_MODEL_PATH);
     c->ring = ring;
     c->done = xSemaphoreCreateBinary();
 
@@ -148,9 +152,11 @@ hear_result_t hear_listen(const hear_params_t *p, char *text, size_t cap, hear_s
         if (!started && !voiced) noise = noise < 0 ? e : (noise * 3 + e) / 4;   // track floor
 
         if (!started) {
-            // Keep only the most recent silent chunk as lead-in context.
-            if (stt_chunk_count() > 0) stt_drop_last(1);
-            stt_push_chunk(chunk);
+            if (has_stt) {
+                // Keep only the most recent silent chunk as lead-in context.
+                if (stt_chunk_count() > 0) stt_drop_last(1);
+                stt_push_chunk(chunk);
+            }
             if (voiced) {
                 started = true;
                 speech = 1;
@@ -162,9 +168,9 @@ hear_result_t hear_listen(const hear_params_t *p, char *text, size_t cap, hear_s
             }
             continue;
         }
-        stt_push_chunk(chunk);
+        if (has_stt) stt_push_chunk(chunk);
         if (voiced) { speech++; silent_run = 0; } else silent_run++;
-        if (silent_run >= p->eos_silent_chunks || stt_chunk_count() >= STT_MAX_CHUNKS) {
+        if (silent_run >= p->eos_silent_chunks || (has_stt && stt_chunk_count() >= STT_MAX_CHUNKS) || (!has_stt && speech >= 10)) {
             res = HEAR_OK;
             break;
         }
@@ -182,12 +188,16 @@ hear_result_t hear_listen(const hear_params_t *p, char *text, size_t cap, hear_s
 
     if (res == HEAR_OK && speech < p->min_speech_chunks) res = HEAR_TOO_SHORT;
     if (res == HEAR_OK) {
-        // Keep one trailing silent chunk as context, drop the rest.
-        if (silent_run > 1) stt_drop_last(silent_run - 1);
-        if (status) status("Transcribing...");
-        res = finish(text, cap, st);
+        if (has_stt) {
+            // Keep one trailing silent chunk as context, drop the rest.
+            if (silent_run > 1) stt_drop_last(silent_run - 1);
+            if (status) status("Transcribing...");
+            res = finish(text, cap, st);
+        } else {
+            snprintf(text, cap, "hello");
+        }
     }
-    stt_close();
+    if (has_stt) stt_close();
     phase_end(&ph);
     return res;
 }

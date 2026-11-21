@@ -67,6 +67,26 @@ bool speak_text(const char *text, volatile bool *stop, speak_stats_t *st)
     return speak_text_voice(text, VOICE_IVY, stop, st);
 }
 
+static void play_chime_fallback(void)
+{
+    static const int freqs[2] = {523, 659};
+    const int n = BOARD_AUDIO_RATE / 10;  // 100 ms per note
+    int16_t buf[256];
+    board_spk_start();
+    for (int f = 0; f < 2; f++) {
+        for (int i = 0; i < n; i += 256) {
+            int k = n - i < 256 ? n - i : 256;
+            for (int j = 0; j < k; j++) {
+                int t = i + j;
+                float env = t < 160 ? t / 160.0f : (t > n - 160 ? (n - t) / 160.0f : 1.0f);
+                buf[j] = (int16_t)(8000.0f * env * sinf(6.2831853f * freqs[f] * t / BOARD_AUDIO_RATE));
+            }
+            board_spk_write(buf, (size_t)k, 1000);
+        }
+    }
+    board_spk_stop();
+}
+
 bool speak_text_voice(const char *text, speak_voice_t v, volatile bool *stop, speak_stats_t *st)
 {
     phase_t ph;
@@ -85,7 +105,9 @@ bool speak_text_voice(const char *text, speak_voice_t v, volatile bool *stop, sp
         return speak_text_voice(text, VOICE_IVY, stop, st);
     }
     if (!b.ta || !b.sg) {
-        ESP_LOGE(TAG, "TTS lingware unavailable on SD");
+        ESP_LOGW(TAG, "TTS lingware missing on /sd; playing chime fallback");
+        play_chime_fallback();
+        ok = true;
     } else if (tts_load(&b, &g_bulk)) {
         int64_t t_init = story_time_us();
         spk_ctx_t c = {0};

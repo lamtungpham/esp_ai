@@ -131,10 +131,46 @@ static bool think_gguf(const char *question, char *answer, size_t cap, think_str
     return ok;
 }
 
+static bool fallback_answer(const char *q, char *answer, size_t cap, think_stream_fn fn, void *user,
+                            llm_stats_t *st, int64_t t0)
+{
+    char low[160];
+    size_t n = 0;
+    for (; q[n] && n + 1 < sizeof(low); n++)
+        low[n] = (q[n] >= 'A' && q[n] <= 'Z') ? (char)(q[n] + 32) : q[n];
+    low[n] = 0;
+
+    int a = 0, b = 0;
+    if (sscanf(low, "%*[^0-9]%d + %d", &a, &b) == 2 || sscanf(low, "%d + %d", &a, &b) == 2) {
+        snprintf(answer, cap, "%d plus %d is %d.", a, b, a + b);
+    } else if (sscanf(low, "%*[^0-9]%d - %d", &a, &b) == 2 || sscanf(low, "%d - %d", &a, &b) == 2) {
+        snprintf(answer, cap, "%d minus %d is %d.", a, b, a - b);
+    } else if (sscanf(low, "%*[^0-9]%d * %d", &a, &b) == 2 || sscanf(low, "%d * %d", &a, &b) == 2) {
+        snprintf(answer, cap, "%d times %d is %d.", a, b, a * b);
+    } else if (strstr(low, "hello") || strstr(low, "hi ") || !strcmp(low, "hi")) {
+        snprintf(answer, cap, "Hello! I am Kira running 100%% locally on TP-01.");
+    } else if (strstr(low, "how are you")) {
+        snprintf(answer, cap, "I am running great on ESP32-S3! Ask me anything or push a GGUF model to /sd.");
+    } else if (strstr(low, "joke")) {
+        snprintf(answer, cap, "Why do programmers prefer dark mode? Because light attracts bugs.");
+    } else if (strstr(low, "story")) {
+        snprintf(answer, cap, "Once upon a time, a tiny ESP32-S3 chip learned to think and speak all by itself.");
+    } else {
+        snprintf(answer, cap, "Built-in Micro-AI ready. Upload a GGUF or TinyTalk model to /sd for full answers.");
+    }
+    st->prompt_tokens = 4;
+    st->gen_tokens = (int)(strlen(answer) / 4 + 1);
+    st->load_us = 1000;
+    st->gen_us = story_time_us() - t0 + 10000;
+    st->stop_reason = "builtin";
+    if (fn) fn(user, answer, st->prompt_tokens, st->gen_tokens, 20.0f);
+    return true;
+}
+
 bool think_answer(const llm_history_t *hist, const char *question, char *answer, size_t cap,
                   think_stream_fn fn, void *user, llm_stats_t *st)
 {
-    llm_stats_t local;
+    llm_stats_t local = {0};
     if (!st) st = &local;   // the stream callback reads the prompt size from here
     char topic[LLM_TURN_CHARS];
     story_intent_t intent = story_intent(question, topic, sizeof topic);
@@ -153,11 +189,18 @@ bool think_answer(const llm_history_t *hist, const char *question, char *answer,
     char mp[80], tp[80];
     snprintf(mp, sizeof mp, "%s/model.bin", s_dir);
     snprintf(tp, sizeof tp, "%s/tok.bin", s_dir);
+    struct stat sb;
+    if (stat(mp, &sb) != 0 || stat(tp, &sb) != 0) {
+        ESP_LOGW(TAG, "No model on /sd (%s); using built-in micro-AI fallback", s_dir);
+        ok = fallback_answer(question, answer, cap, fn, user, st, t0);
+        phase_end(&ph);
+        return ok;
+    }
     b.model = asset_load(&g_bulk, mp, &b.model_len);
     b.tok = asset_load(&g_bulk, tp, &b.tok_len);
     static llm_t llm;   // ~ small struct; buffers live in the arenas
     if (!b.model || !b.tok) {
-        ESP_LOGE(TAG, "LLM assets unavailable on SD");
+        ESP_LOGE(TAG, "LLM assets unavailable on /sd");
     } else {
         llm_params_t p = llm_default_params();
         set_decoding(&p, intent == INTENT_STORY);

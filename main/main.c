@@ -412,11 +412,7 @@ void app_main(void)
     ESP_LOGI(TAG, "READY lcd=%s touch=%s audio=%s sd=%s arenas=%d", esp_err_to_name(lcd),
              esp_err_to_name(tp), esp_err_to_name(au), esp_err_to_name(sd), arenas);
 
-    // Triggers: the on-screen spark button (tap = press + release inside it).
-    // The physical BOOT button still works as a hidden backup.
-    gpio_config_t btn = {.pin_bit_mask = 1ULL << BOARD_BOOT_BTN, .mode = GPIO_MODE_INPUT,
-                         .pull_up_en = GPIO_PULLUP_ENABLE};
-    gpio_config(&btn);
+    board_buttons_init();
 
     touch_ui_start();   // wake / Ask pill / scroll, also during sessions
 
@@ -426,12 +422,14 @@ void app_main(void)
     if (!wake_ok) app_ui_status("Wake word unavailable", UI_ERR);
 
     char line[200];
+    int64_t vol_up_t0 = 0, vol_down_t0 = 0, vol_down_last_rel = 0;
+    bool vol_up_held = false, vol_down_held = false;
     while (1) {
         bool start = touch_ui_wait_ask(10);
         if (console_readline(line, sizeof line, 20)) {
             if (!strncmp(line, "wakeplay ", 9)) {
                 // Test: play a WAV through the speaker while WakeNet keeps
-                // listening (a detection starts a session like "Hey Ivy" would).
+                // listening (a detection starts a session like "Hey Kira" would).
                 s_play.delay_ms = 300;
                 int vol = 30;
                 if (sscanf(line + 9, "%95s %d", s_play.path, &vol) >= 1) {
@@ -446,9 +444,56 @@ void app_main(void)
             }
             screen_note_activity();
         }
-        if (gpio_get_level(BOARD_BOOT_BTN) == 0) {
-            while (gpio_get_level(BOARD_BOOT_BTN) == 0) vTaskDelay(pdMS_TO_TICKS(10));
+        if (board_btn_boot()) {
+            while (board_btn_boot()) vTaskDelay(pdMS_TO_TICKS(10));
             start = true;
+            screen_note_activity();
+        }
+        // TP-01 VOL+ (GPIO 40): tap = +10%, hold >600ms = 100%
+        if (board_btn_vol_up()) {
+            if (!vol_up_t0) { vol_up_t0 = story_time_us(); vol_up_held = false; }
+            else if (!vol_up_held && story_time_us() - vol_up_t0 > 600000) {
+                vol_up_held = true;
+                while (prefs()->volume < 100) prefs_step_volume(1);
+                board_audio_set_volume(100);
+                app_ui_status("Volume 100%", UI_OK);
+                screen_note_activity();
+            }
+        } else if (vol_up_t0) {
+            if (!vol_up_held) {
+                int v = prefs_step_volume(1);
+                board_audio_set_volume(v);
+                char st[24]; snprintf(st, sizeof st, "Volume %d%%", v);
+                app_ui_status(st, UI_OK);
+                screen_note_activity();
+            }
+            vol_up_t0 = 0;
+        }
+        // TP-01 VOL- (GPIO 39): tap = -10%, double-tap = Ask, hold >600ms = mute
+        if (board_btn_vol_down()) {
+            if (!vol_down_t0) { vol_down_t0 = story_time_us(); vol_down_held = false; }
+            else if (!vol_down_held && story_time_us() - vol_down_t0 > 600000) {
+                vol_down_held = true;
+                board_audio_set_volume(0);
+                app_ui_status("Muted", UI_GREY);
+                screen_note_activity();
+            }
+        } else if (vol_down_t0) {
+            if (!vol_down_held) {
+                int64_t now = story_time_us();
+                if (vol_down_last_rel && now - vol_down_last_rel < 400000) {
+                    vol_down_last_rel = 0;
+                    start = true;
+                } else {
+                    vol_down_last_rel = now;
+                    int v = prefs_step_volume(-1);
+                    board_audio_set_volume(v);
+                    char st[24]; snprintf(st, sizeof st, "Volume %d%%", v);
+                    app_ui_status(st, UI_OK);
+                }
+                screen_note_activity();
+            }
+            vol_down_t0 = 0;
         }
         if (start) {
             wake_stop();                                   // frees the mic + memory

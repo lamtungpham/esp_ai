@@ -8,14 +8,13 @@
 // and stay under the same licence with corresponding source offered.
 // See LICENSE, LICENSE.exception, NOTICE.md and THIRD_PARTY.md.
 
-// ILI9341 over SPI2 via esp_lcd panel IO. No framebuffer: callers stream
-// pixels through two small ping-pong DMA buffers.
-// Init sequence: TFT_eSPI ILI9341_2_DRIVER as used by Gume/Freenove
-// (docs/refnotes/hardware.md §2). BGR + inversion ON, measured on hardware.
-// Never read from the panel (it corrupts state on this board).
+// NV3023 296x240 landscape over SPI3 via esp_lcd panel IO (TP-01 / ostb-3st).
+// No framebuffer: callers stream pixels through two small ping-pong DMA buffers.
+// Init sequence matches fw-kira/ostb-3st.cc exactly (BGR, invert OFF, offset_x=24).
 #include "board.h"
 #include <math.h>
 #include "board_lcd_stream.h"
+#include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
 #include "esp_lcd_panel_io.h"
@@ -23,11 +22,12 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "lcd";
 
-#define LCD_HOST SPI2_HOST
+#define LCD_HOST SPI3_HOST
 #define LCD_HZ (40 * 1000 * 1000)
 
 static esp_lcd_panel_io_handle_t s_io;
@@ -54,6 +54,16 @@ static void wait_idle(void)
 
 esp_err_t board_lcd_init(void)
 {
+    gpio_config_t rst = {
+        .pin_bit_mask = 1ULL << BOARD_LCD_RST,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&rst);
+    gpio_set_level(BOARD_LCD_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level(BOARD_LCD_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(120));
+
     spi_bus_config_t bus = {
         .mosi_io_num = BOARD_LCD_MOSI,
         .miso_io_num = -1,
@@ -85,31 +95,68 @@ esp_err_t board_lcd_init(void)
     }
     s_free = xSemaphoreCreateCounting(2, 2);
 
-    cmd(0x01, NULL, 0);  // software reset (panel RST is tied to board reset)
-    vTaskDelay(pdMS_TO_TICKS(150));
-    CMD(0xCF, 0x00, 0xC1, 0x30);
-    CMD(0xED, 0x64, 0x03, 0x12, 0x81);
-    CMD(0xE8, 0x85, 0x00, 0x78);
-    CMD(0xCB, 0x39, 0x2C, 0x00, 0x34, 0x02);
-    CMD(0xF7, 0x20);
-    CMD(0xEA, 0x00, 0x00);
-    CMD(0xC0, 0x10);
-    CMD(0xC1, 0x00);
-    CMD(0xC5, 0x30, 0x30);
-    CMD(0xC7, 0xB7);
-    CMD(0x3A, 0x55);
-    CMD(0x36, 0x48);  // MADCTL rot0: MX|BGR, portrait, USB at bottom
-    CMD(0xB1, 0x00, 0x1A);
-    CMD(0xB6, 0x08, 0x82, 0x27);
-    CMD(0xF2, 0x00);
-    CMD(0x26, 0x01);
-    CMD(0xE0, 0x0F, 0x2A, 0x28, 0x08, 0x0E, 0x08, 0x54, 0xA9, 0x43, 0x0A, 0x0F, 0x00, 0x00, 0x00, 0x00);
-    CMD(0xE1, 0x00, 0x15, 0x17, 0x07, 0x11, 0x06, 0x2B, 0x56, 0x3C, 0x05, 0x10, 0x0F, 0x3F, 0x3F, 0x0F);
+    // NV3023 init sequence from fw-kira (ostb-3st.cc)
+    CMD(0xFF, 0xA5);
+    CMD(0x3E, 0x09);
+    CMD(0x3A, 0x65);
+    CMD(0x82, 0x00);
+    CMD(0x98, 0x00);
+    CMD(0x63, 0x0F);
+    CMD(0x64, 0x0F);
+    CMD(0xB4, 0x34);
+    CMD(0xB5, 0x30);
+    CMD(0x83, 0x03);
+    CMD(0x86, 0x04);
+    CMD(0x87, 0x16);
+    CMD(0x88, 0x0A);
+    CMD(0x89, 0x27);
+    CMD(0x93, 0x63);
+    CMD(0x96, 0x81);
+    CMD(0xC3, 0x10);
+    CMD(0xE6, 0x00);
+    CMD(0x99, 0x01);
+    CMD(0x70, 0x09);
+    CMD(0x71, 0x1D);
+    CMD(0x72, 0x14);
+    CMD(0x73, 0x0A);
+    CMD(0x74, 0x11);
+    CMD(0x75, 0x16);
+    CMD(0x76, 0x38);
+    CMD(0x77, 0x0B);
+    CMD(0x78, 0x08);
+    CMD(0x79, 0x3E);
+    CMD(0x7A, 0x07);
+    CMD(0x7B, 0x0D);
+    CMD(0x7C, 0x16);
+    CMD(0x7D, 0x0F);
+    CMD(0x7E, 0x14);
+    CMD(0x7F, 0x05);
+    CMD(0xA0, 0x04);
+    CMD(0xA1, 0x28);
+    CMD(0xA2, 0x0C);
+    CMD(0xA3, 0x11);
+    CMD(0xA4, 0x0B);
+    CMD(0xA5, 0x23);
+    CMD(0xA6, 0x45);
+    CMD(0xA7, 0x07);
+    CMD(0xA8, 0x0A);
+    CMD(0xA9, 0x3B);
+    CMD(0xAA, 0x0D);
+    CMD(0xAB, 0x18);
+    CMD(0xAC, 0x14);
+    CMD(0xAD, 0x0F);
+    CMD(0xAE, 0x19);
+    CMD(0xAF, 0x08);
+    CMD(0xFF, 0x00);
+    // MADCTL: swap_xy=1 (0x20) | mirror_x=1 (0x40) | mirror_y=1 (0x80) | BGR (0x08) = 0xE8
+    CMD(0x36, 0xE8);
+    CMD(0x3A, 0x55);  // 16-bit RGB565
     cmd(0x11, NULL, 0);  // sleep out
     vTaskDelay(pdMS_TO_TICKS(120));
-    cmd(0x21, NULL, 0);  // inversion ON (measured)
+    cmd(0x20, NULL, 0);  // inversion OFF (ostb-3st.cc: invert_color false)
     board_lcd_fill(0, 0, BOARD_LCD_W, BOARD_LCD_H, 0x0000);
     cmd(0x29, NULL, 0);  // display on (after clearing, so no garbage flash)
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     // Backlight: LEDC 5 kHz, 8-bit, active high. Starts off.
     ledc_timer_config_t t = {
@@ -128,15 +175,13 @@ esp_err_t board_lcd_init(void)
         .duty = 0,
     };
     ESP_RETURN_ON_ERROR_LOG(ledc_channel_config(&ch));
-    ESP_LOGI(TAG, "ILI9341 ready @%d MHz", LCD_HZ / 1000000);
+    ESP_LOGI(TAG, "NV3023 296x240 ready @%d MHz", LCD_HZ / 1000000);
     return ESP_OK;
 }
 
 void board_backlight(uint8_t pct)
 {
     if (pct > 100) pct = 100;
-    // Gamma 2.2: the eye is far more sensitive at the dim end, so a linear
-    // duty makes 60..100 % look the same. 0 stays fully off.
     uint32_t duty = pct ? (uint32_t)lroundf(powf(pct / 100.0f, 2.2f) * 255.0f) : 0;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty ? duty : (pct ? 1 : 0));
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
@@ -145,8 +190,10 @@ void board_backlight(uint8_t pct)
 void board_lcd_window(int x, int y, int w, int h)
 {
     wait_idle();
-    uint8_t ca[4] = {x >> 8, x & 0xFF, (x + w - 1) >> 8, (x + w - 1) & 0xFF};
-    uint8_t ra[4] = {y >> 8, y & 0xFF, (y + h - 1) >> 8, (y + h - 1) & 0xFF};
+    int x0 = x + BOARD_LCD_OFFSET_X, x1 = x + w - 1 + BOARD_LCD_OFFSET_X;
+    int y0 = y + BOARD_LCD_OFFSET_Y, y1 = y + h - 1 + BOARD_LCD_OFFSET_Y;
+    uint8_t ca[4] = {(uint8_t)(x0 >> 8), (uint8_t)(x0 & 0xFF), (uint8_t)(x1 >> 8), (uint8_t)(x1 & 0xFF)};
+    uint8_t ra[4] = {(uint8_t)(y0 >> 8), (uint8_t)(y0 & 0xFF), (uint8_t)(y1 >> 8), (uint8_t)(y1 & 0xFF)};
     cmd(0x2A, ca, 4);
     cmd(0x2B, ra, 4);
     s_first_chunk = true;
@@ -162,7 +209,6 @@ uint16_t *board_lcd_stream_buf(void)
 
 void board_lcd_stream_push(uint16_t *buf, size_t npx)
 {
-    // First chunk uses RAMWR (0x2C), later ones RAMWR-continue (0x3C).
     esp_lcd_panel_io_tx_color(s_io, s_first_chunk ? 0x2C : 0x3C, buf, npx * 2);
     s_first_chunk = false;
 }

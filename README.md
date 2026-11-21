@@ -19,11 +19,14 @@ Wi-Fi is used for one thing only: setting the clock over NTP.
      → [THINK: 19.7M-parameter LLM, 4-bit] → [SPEAK: SVOX Pico] → speaker
 ```
 
-## Hardware
+## Hardware (TP-01 / `ostb-3st`)
 
-Freenove **FNK0104B**: ESP32-S3R8 (dual Xtensa @240 MHz, 8 MB octal PSRAM,
-16 MB flash), ILI9341 240x320 LCD, FT6336U touch, ES8311 codec with microphone
-and speaker, microSD over SDMMC, Li-ion battery with charging.
+Ported to **TP-01** (`ostb-3st`, formerly DS-02): ESP32-S3R8 (dual Xtensa @240 MHz,
+8 MB octal PSRAM, 16 MB QIO flash), NV3023 296×240 landscape SPI3 LCD, CST816
+capacitive touch (`0x15`), ES8311 DAC (`0x18`) + ES7210 4-ch TDM ADC (`0x40`)
+with PA on GPIO 4 (active HIGH), 3 buttons (`BOOT=0`, `VOL+=40`, `VOL-=39`),
+battery ADC2_CH6 (GPIO 17) + charge status (GPIO 47), and an internal ~10.9 MB
+Wear-Levelling FATFS `storage` partition mounted at `/sd` (no physical SD slot).
 
 Native **ESP-IDF v6.1**, C. No LVGL, no Arduino.
 

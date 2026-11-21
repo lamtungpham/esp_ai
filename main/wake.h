@@ -17,7 +17,11 @@
 #pragma once
 #include <stdbool.h>
 
-#define WAKE_PHRASE "Hey Ivy"   // stock esp-sr model wn9_heyivy_tts2 (matches the name, Ivy AI)
+#ifdef CONFIG_SR_WN_WN9_HEYKIRA_TTS3
+#define WAKE_PHRASE "Hey Kira"
+#else
+#define WAKE_PHRASE "Hey Ivy"
+#endif
 
 typedef void (*wake_cb_t)(void);
 

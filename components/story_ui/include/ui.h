@@ -22,8 +22,8 @@ extern "C" {
 #define UI_FONT_W 8
 #define UI_FONT_H 13
 #define UI_ROW_H 14                 // font + 1 px leading
-#define UI_MAX_COLS 30              // 240 / 8
-#define UI_MAX_ROWS 22
+#define UI_MAX_COLS 37              // 296 / 8
+#define UI_MAX_ROWS 17              // 240 / 14
 
 #define RGB565(r, g, b) (uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define UI_BLACK RGB565(0, 0, 0)

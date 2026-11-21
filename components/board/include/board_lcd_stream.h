@@ -18,7 +18,7 @@
 #include <stdint.h>
 #include "esp_log.h"
 
-#define BOARD_LCD_STREAM_PX 4096   // pixels per DMA buffer (8 KB each, x2)
+#define BOARD_LCD_STREAM_PX 4608   // pixels per DMA buffer (>= 296*14 = 4144 px, ~9 KB each x2)
 
 #define ESP_RETURN_ON_ERROR_LOG(x) do { esp_err_t e_ = (x); if (e_ != ESP_OK) { \
     ESP_LOGE(TAG, "%s failed: %s (%s:%d)", #x, esp_err_to_name(e_), __FILE__, __LINE__); return e_; } } while (0)

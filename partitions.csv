@@ -9,9 +9,12 @@
 # See LICENSE, LICENSE.exception, NOTICE.md and THIRD_PARTY.md.
 
 # Name,   Type, SubType, Offset,   Size
-# Large assets (STT/LLM/TTS) live on the SD card; see docs/MEMORY_BUDGET.md.
-# "model" holds the esp-sr WakeNet model (packed + flashed by the build).
+# TP-01 (ostb-3st) 16MB Flash layout (no external SD card slot):
+# - "model" holds the esp-sr WakeNet model (packed + flashed by the build).
+# - "storage" is a ~10.9 MB Wear-Levelling FATFS partition mounted at /sd
+#   for LLM (.gguf / TinyTalk) and PicoTTS assets uploaded via tools/sd_put.py.
 nvs,      data, nvs,     0x9000,   0x6000
 phy_init, data, phy,     0xf000,   0x1000
-factory,  app,  factory, 0x10000,  6M
-model,    data, spiffs,  0x610000, 1M
+factory,  app,  factory, 0x10000,  4M
+model,    data, spiffs,  0x410000, 1M
+storage,  data, fat,     0x510000, 11200K
